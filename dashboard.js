@@ -1,4 +1,4 @@
-// Leads Metrics dashboard (dummy-data powered)
+// Leads Metrics dashboard (dummy-data powered) — v2 with 'All' in every filter
 (function(){
   const diag = document.getElementById('diag');
   function log(msg){ if(diag){ diag.innerHTML = msg; } }
@@ -16,7 +16,6 @@
   function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
   function addMonths(d,n){ const x=new Date(d); x.setMonth(x.getMonth()+n); return x; }
   function monthShort(y,m){ return new Date(y,m,1).toLocaleString('en-US',{month:'short'}); }
-  function fmt(n){ return new Intl.NumberFormat('en-SG',{notation:'compact',maximumFractionDigits:1}).format(n); }
 
   // Seeded RNG for reproducible mock data
   function mulberry32(a){ return function(){ let t=a += 0x6D2B79F5; t = Math.imul(t ^ t>>>15, t | 1); t ^= t + Math.imul(t ^ t>>>7, t | 61); return ((t ^ t>>>14) >>> 0) / 4294967296; } }
@@ -35,7 +34,7 @@
   const MktActs = ["Event campaign","Campaign","Non Marketing"];
 
   // Mock partners
-  const Partners = Array.from({length: 160}).map((_,i)=>{
+  const Partners = Array.from({length: 180}).map((_,i)=>{
     const product = choice(Products);
     const industry = choice(Industries);
     const country = choice(Countries);
@@ -77,14 +76,14 @@
   }
 
   function partnerMatches(p, f){
-    if(p.country!==f.country) return false; // country has no 'All' in spec
+    if(f.country!=='All' && p.country!==f.country) return false;
     if(f.partnerCat!=='All' && p.partnerCat!==f.partnerCat) return false;
     if(f.agreement!=='All' && p.agreement!==f.agreement) return false;
     if(f.industry!=='All' && p.industry!==f.industry) return false;
     if(f.cpm!=='All' && p.cpm!==f.cpm) return false;
     if(f.product!=='All' && p.product!==f.product) return false;
     if(f.lead!=='All' && p.lead!==f.lead) return false;
-    if(p.mkt!==f.mkt) return false; // no 'All' for marketing
+    if(f.mkt!=='All' && p.mkt!==f.mkt) return false;
     const monthsActive = (now.getFullYear()-p.activation.getFullYear())*12 + (now.getMonth()-p.activation.getMonth()) - (now.getDate()<p.activation.getDate()?1:0);
     if(f.age==='Less than 6 months transacting' && monthsActive>=6) return false;
     if(f.age==='More than 6 months transacting' && monthsActive<6) return false;
@@ -139,7 +138,7 @@
     let prevQuarterLeads = 0;
     months.forEach((mo, idx)=>{ if(prevQuarterMonths.includes((mo.m))) prevQuarterLeads += monthly[idx].leads; });
     const quarterTarget = Math.round(prevQuarterLeads * 1.10);
-    return { months, monthly, quarterTarget };
+    return { months, monthly, quarterTarget, selectedCount: selected.length };
   }
 
   function monthLabels(months){ return months.map(m=> monthShort(m.y, m.m)); }
@@ -195,7 +194,16 @@
     document.getElementById('progressFill').style.width = pct + "%";
   }
 
-  function plotBars(elId, labels, series, title){
+  function plotBars(elId, labels, series, title, hasData){
+    const container = document.getElementById(elId);
+    const empty = container.querySelector('.empty');
+    if(!hasData){
+      empty.style.display = 'flex';
+      if(container._plotly){ Plotly.purge(container); }
+      return;
+    } else {
+      empty.style.display = 'none';
+    }
     if(!ensurePlotly()) return;
     const traces = series.map(s=>({type:'bar', name:s.name, x:labels, y:s.y}));
     const layout = {
@@ -206,19 +214,21 @@
       yaxis:{ title:title, gridcolor:'#eef2f7', zerolinecolor:'#cbd5e1', tickprefix:'S$ ', separatethousands:true, tickfont:{color:'#334155'}, titlefont:{color:'#334155'} },
       legend:{ orientation:'h', y:1.12, x:0, font:{color:'#0f172a'} }
     };
-    Plotly.react(document.getElementById(elId), traces, layout, {displayModeBar:true, responsive:true});
+    Plotly.react(container, traces, layout, {displayModeBar:true, responsive:true});
   }
 
   function drawAll(){
     const data = aggregateMonthly(12, getFilters());
+    document.getElementById('matchCount').textContent = `${data.selectedCount.toLocaleString()} partners match`;
     updateCards(data);
     const mode = document.getElementById('groupBy').value;
     const G = computeAvgSeries(data, 'gross', mode);
     const N = computeAvgSeries(data, 'net', mode);
     const NN = computeAvgSeries(data, 'netnet', mode);
-    plotBars('ch_avg_gross', G.labels, G.series, 'Avg Gross Revenue (S$)');
-    plotBars('ch_avg_net', N.labels, N.series, 'Avg Net Revenue (S$)');
-    plotBars('ch_avg_netnet', NN.labels, NN.series, 'Avg Net Net Revenue (S$)');
+    const hasData = data.selectedCount > 0;
+    plotBars('ch_avg_gross', G.labels, G.series, 'Avg Gross Revenue (S$)', hasData);
+    plotBars('ch_avg_net', N.labels, N.series, 'Avg Net Revenue (S$)', hasData);
+    plotBars('ch_avg_netnet', NN.labels, NN.series, 'Avg Net Net Revenue (S$)', hasData);
     if(diag) diag.style.display = 'none';
   }
 
@@ -236,6 +246,7 @@
     ['f_country','f_partnerCat','f_agreement','f_industry','f_cpm','f_product','f_lead','f_mkt','f_age','groupBy']
       .forEach(id=> document.getElementById(id).addEventListener('change', drawAll));
 
+    // Initial draw (defaults are All)
     drawAll();
   });
 })();
